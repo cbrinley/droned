@@ -160,11 +160,9 @@ def findProcesses(s):
 
 def findThreadIds(s='.*'):
     """Finds Threads ID by pattern"""
-    procs = findProcesses(s).keys()
     tids = set()
-    for p in procs:
-        for tid in p.tasks:
-            tids.add(tid)
+    for p in findProcesses(s).keys():
+        tids.update(p.getTasks())
     return tids
 
 #TODO

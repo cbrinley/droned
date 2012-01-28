@@ -81,7 +81,7 @@ class Process(object):
             self.path = "%s/.%d" % (PROCDIR,pid) #For kernel 2.4 threads
             if not os.path.isdir(self.path):
                 #this exception is injected into the module on import
-                raise InvalidProcess("Invalid PID (%s)" % pid)
+                raise AssertionError("Invalid PID (%s)" % pid)
         self.inode = os.stat(self.path).st_ino
 
     def readFile(self,f):

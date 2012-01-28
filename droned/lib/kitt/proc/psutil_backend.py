@@ -55,7 +55,7 @@ class Process(object):
     stats = property(lambda s: s.getStats())
     environ = property(lambda s: s.getEnv())
     uid = property(lambda s: s.ps.uids.real)
-    gid = property(lambda s. s.ps.gids.real)
+    gid = property(lambda s: s.ps.gids.real)
 
     @property
     @safe(1)
@@ -87,6 +87,8 @@ class Process(object):
             self._delegate = psutil.Process(pid)
         else: #next statement isn't true but ... see findProcess way below
             raise ValueError('Pid must be an integer')
+        if not self.running:
+            raise AssertionError("Invalid PID (%d)" % self.pid)
 
     def isRunning(self):
         return self.running
@@ -95,11 +97,11 @@ class Process(object):
         """not portable so not implemented"""
         return {}
 
-    @safe({1: None, 2: None, 3: None})
+    @safe({0: None, 1: None, 2: None})
     def getFD(self):
-        FDS = dict((i.fd,i.path) for i in self.ps.get_open_files())
         #every os has stdin, stdout, and stderr
-        FDS.update({1: None, 2: None, 3: None})
+        FDS = {0: None, 1: None, 2: None}
+        FDS.update(dict((i.fd,i.path) for i in self.ps.get_open_files()))
         return FDS
 
     @safe(set())
@@ -119,6 +121,11 @@ class Process(object):
         try: self.ps.wait(timeout)
         except: pass #not sure if it is needed
         return not self.running
+
+    def __str__(self):
+        return '%s(pid=%d)' % (self.__class__.__name__,self.pid)
+    __repr__ = __str__
+
 
 ###############################################################################
 # the other classes don't really do anything interesting.

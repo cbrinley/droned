@@ -178,7 +178,7 @@ class Process(_SunProc):
         self.path = "%s/%d" % (PROCDIR,int(self.pid))
         if not os.path.isdir(self.path):
             #this exception is injected into the module on import
-            raise InvalidProcess("Invalid PID (%s)" % pid)
+            raise AssertionError("Invalid PID (%s)" % pid)
         self.inode = os.stat(self.path).st_ino
         _SolProc.__init__(self)
 

@@ -266,21 +266,16 @@ _required_methods = [
     'cpuTotalTime',
 ]
 
-#import the platform specific backend, validate it and expose it
-_platform = platform.system()
-_backend = os.path.join(os.path.abspath(os.path.dirname(__file__)), 
-    _platform + '.py'
-)
 #exportable interfaces
 _EXPORTED = set(_process_interfaces.keys() + _required_methods)
 
-if os.path.exists(_backend):
+def _load_backend(_backend, _platform):
+    """load a process backend"""
     name = None
     _has_all = False
     try:
         name = __name__ + '.' + _platform
         mod = __import__(name, {}, {}, [_platform])
-        mod.InvalidProcess = InvalidProcess #for compatibility
         #validate the module interface
         if not IKittProcModule.providedBy(mod):
             e = ImportError("%s does not implement IKittProcModule interface" \
@@ -303,19 +298,49 @@ if os.path.exists(_backend):
             #add to exported interfaces
             if not var.startswith('_'):
                 _EXPORTED.add(var)
-    except ImportError:
-        e = 'Failed load platform specific process backend for [%s]' % \
-                (_platform,)
-        warnings.warn(e)
-        traceback.print_exc()
+    except ImportError: raise
     except AssertionError: pass
     except: traceback.print_exc()
-    #clean up the sys.modules
-    if name and name in sys.modules:
-        del sys.modules[name]
-else:
-    e = 'Platform %s is not supported, expect problems' % (_platform,)
+
+_success = False
+#try to load backends
+try:
+    _platform = 'psutil_backend'
+    #try import the generic backend, validate it and expose it
+    _backend = os.path.join(
+       os.path.abspath(os.path.dirname(__file__)), 
+       _platform + '.py'
+    )
+    _load_backend(_backend, _platform)
+    _success = True
+except ImportError:
+    _platform = platform.system()
+    #try to import the platform specific backend, validate it and expose it
+    _backend = os.path.join(
+        os.path.abspath(os.path.dirname(__file__)), 
+        _platform + '.py'
+    )
+    if os.path.exists(_backend):
+        try:
+            _load_backend(_backend, _platform)
+            _success = True
+        except ImportError: pass
+
+if not _success:
+    e = 'Platform %s is not supported, expect problems' % (platform.system(),)
     warnings.warn(e)
 
+from kitt.decorators import raises
+class _ExceptionTrapper(type):
+    """trap exceptions when instantiating one of the providers"""
+    @raises(InvalidProcess)
+    def __call__(klass, *args, **kwargs):
+        return type.__call__(klass, *args, **kwargs)
+
+#basically wrap exceptions on instantiation
+Process = _ExceptionTrapper('Process', (Process,), {})
+LiveProcess = _ExceptionTrapper('LiveProcess', (LiveProcess,), {})
+ProcessSnapshot = _ExceptionTrapper('ProcessSnapshot', (ProcessSnapshot,), {})
+RemoteProcess = _ExceptionTrapper('RemoteProcess', (RemoteProcess,), {})
 #export public attributes, methods, and classes
 __all__ = list(_EXPORTED)

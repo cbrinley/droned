@@ -45,7 +45,7 @@ class Process(object):
     """
     implements(IKittProcess)
     ps = property(lambda s: s._delegate)
-    running = property(lambda s: s.ps.is_running())
+    running = property(lambda s: s.isRunning())
     pid = property(lambda s: s.ps.pid)
     ppid = property(lambda s: s.ps.ppid)
     exe = property(lambda s: s.ps.exe)
@@ -87,11 +87,19 @@ class Process(object):
             self._delegate = psutil.Process(pid)
         else: #next statement isn't true but ... see findProcess way below
             raise ValueError('Pid must be an integer')
+        #save this for running tests
+        self._saved_inode = self.inode
         if not self.running:
             raise AssertionError("Invalid PID (%d)" % self.pid)
 
     def isRunning(self):
-        return self.running
+        """make sure not only the pid is running but it is the same process 
+           we thought it was.  this is done naively with a simple hash.
+        """
+        if not self.ps.is_running():
+            return False
+        #make sure this is the same process we thought it was
+        return bool(self._saved_inode == self.inode)
 
     def getEnv(self):
         """not portable so not implemented"""
@@ -106,6 +114,7 @@ class Process(object):
 
     @safe(set())
     def getTasks(self):
+        """get the thread id's"""
         return set(t.id for t in self.ps.get_threads())
 
     def getStats(self):
@@ -113,9 +122,11 @@ class Process(object):
         return {}
 
     def memUsage(self):
+        """get memory usage in bytes"""
         return self.memory
 
     def waitForDeath(self, timeout=10, delay=0.25):
+        """wait for the process to die"""
         #delay isn't needed, but it is part of the interface
         #definition, so we'll leave it as a dummy.
         try: self.ps.wait(timeout)

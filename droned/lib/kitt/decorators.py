@@ -15,7 +15,7 @@
 ###############################################################################
 
 from twisted.python.failure import Failure
-from twisted.internet import threads, defer, reactor
+from twisted.internet import threads, defer
 from kitt.util import getException
 import sys
 import time
@@ -51,7 +51,9 @@ def deferredInThreadPool(pool=None, R=None):
 
        @return (defer.Deferred)
     """
-    if not R: R = reactor
+    if not R:
+        from twisted.internet import reactor
+        R = reactor
     if not pool: #provide a default thread pool
         pool = R.getThreadPool()
     def decorator(func):
@@ -79,7 +81,9 @@ def synchronizedInThread(R=None):
        @raise any exception
        @return (object)
     """
-    if not R: R = reactor
+    if not R:
+        from twisted.internet import reactor
+        R = reactor
     def decorator(func):
         def newfunc(*a, **kw):
             #works with deferred and blocking methods
@@ -100,7 +104,9 @@ def threadSafeDeferred(R=None):
        @param R (reactor)
        @return (defer.Deferred) 
     """
-    if not R: R = reactor
+    if not R:
+        from twisted.internet import reactor
+        R = reactor
     def decorator(func): 
         def newfunc(*a, **kw):
             return func(*a, **kw)
@@ -124,7 +130,9 @@ def threadSafePoolDeferred(pool=None, R=None):
        @param R (reactor)
        @return (defer.Deferred) 
     """
-    if not R: R = reactor
+    if not R:
+        from twisted.internet import reactor
+        R = reactor
     if not pool: #pick a thread pool
         pool = R.getThreadPool()
     def decorator(func): 
@@ -250,6 +258,7 @@ def retry(delay=0.25, maximum=10, trap=None, debug=False, fd=None,
         @defer.deferredGenerator
         def _deferred(deferredResult, caller):
             """only callable by ``newfunc``"""
+            from twisted.internet import reactor
             result = None
             attempt = 0
             while attempt <= maximum:

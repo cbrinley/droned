@@ -1,0 +1,15 @@
+- SERVICE: &jabber
+    SERVICENAME: 'jabber'
+    AUTOSTART: yes
+    JABBER_USERNAME: 'droned'
+    JABBER_PASSWORD: 'secret'
+    JABBER_SERVER: 'jabber.example.net'
+    JABBER_CHAT_SERVICE: 'conference.jabber.example.net'
+    JABBER_PORT: 5222
+    JABBER_BROADCAST_INTERVAL: 300
+    JABBER_VALIDATE_XML: yes
+    JABBER_TRUST_ROOM: yes
+    DEPUTY: 'admin@jabber.example.net'
+    JABBER_TEAM_ROSTER: '/var/lib/droned/teams' #you have to create and set perms
+    CONVERSATION_RESPONSE_PERIOD: 180
+    JABBER_JOIN_CHATROOM: yes

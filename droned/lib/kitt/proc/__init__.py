@@ -188,7 +188,6 @@ class NullProcess(Process):
 
 class RemoteProcess(NullProcess):
     """This is a remote process that looks like a live process"""
-
     implements(IKittRemoteProcess)
     pid = property(lambda s: s.info.get('pid', 0))
     inode = property(lambda s: s.info.get('inode', 0))
@@ -202,10 +201,8 @@ class RemoteProcess(NullProcess):
     environ = property(lambda s: s.info.get('environ', {}))
     def __init__(self, pid):
         self.info = {'pid': pid}
-
     def updateProcess(self, infoDict):
         self.info.update(infoDict)
-
     def isRunning(self): return bool(self.pid)
     def memUsage(self): return self.memory
     def getFD(self): return [ i for i in self.fd_count ]
@@ -359,6 +356,15 @@ class _Cache(type):
 
     @raises(InvalidProcess)
     def __call__(klass, *args, **kwargs):
+        instanceID = args[0] #must be the pid
+        try: return klass._builder(*args, **kwargs)
+        except KeyError: raise #already expired out
+        except: #safety so we don't reference leak
+            if instanceID in klass._cache:
+                klass.delete(klass._cache[instanceID])
+            raise #don't forget to re-raise
+
+    def _builder(klass, *args, **kwargs):
         instanceID = args[0] #must be the pid
         if instanceID in klass._cache and not \
                 klass._cache[ instanceID ].isRunning():

@@ -217,7 +217,7 @@ def _findProcesses(s):
 def findProcesses(s):
     """Finds Process ID by pattern"""
     try: return dict(_findProcesses)
-    except return {}
+    except: return {}
 
 def findThreadIds(s='.*'):
     """Finds Threads ID by pattern"""

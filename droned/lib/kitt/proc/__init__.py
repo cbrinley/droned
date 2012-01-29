@@ -330,17 +330,57 @@ if not _success:
     e = 'Platform %s is not supported, expect problems' % (platform.system(),)
     warnings.warn(e)
 
+
+def process_expiration(func):
+    """this decorator is used to destroy references on the class"""
+    def decorator(self, *args, **kwargs):
+        if not self.isRunning():
+            self.__class__.delete(self)
+        return func(self, *args, **kwargs)
+    return decorator
+
+
 from kitt.decorators import raises
-class _ExceptionTrapper(type):
-    """trap exceptions when instantiating one of the providers"""
+class _Cache(type):
+    """Trap exceptions when instantiating one of the providers. Cache process
+       objects to avoid IO impact on some platforms. This also allows us to
+       do some tricks with adapters in the higher levels to swap running
+       representations of processes to no longer running in a seamless manor.
+    """
+    def __init__(klass, name, bases, members):
+        super(_Cache, klass).__init__(name, bases, members)
+        klass._cache = {}
+
+    def delete(klass, instance):
+        for instanceID, _instance in klass._cache.items():
+            if _instance is instance:
+                del klass._cache[ instanceID ]
+                return
+
     @raises(InvalidProcess)
     def __call__(klass, *args, **kwargs):
-        return type.__call__(klass, *args, **kwargs)
+        instanceID = args[0] #must be the pid
+        if instanceID in klass._cache and not \
+                klass._cache[ instanceID ].isRunning():
+            #expire on look up if no longer running
+            klass.delete(klass._cache[instanceID])
+        elif instanceID not in klass._cache:
+            klass._cache[instanceID] = klass.__new__(klass, *args, **kwargs)
+            for name in vars(klass._cache[instanceID]).keys():
+                if name.startswith('_'): continue
+                if name == 'isRunning': continue
+                obj = getattr(klass._cache[instanceID], name)
+                if not hasattr(obj, '__call__'): continue
+                #this runtime decorator will take care of cleanup
+                obj = process_expiration(obj)
+                setattr(klass._cache[instanceID], name, obj)
+            klass._cache[instanceID].__init__(*args, **kwargs)
+        #key error becomes invalid process
+        return klass._cache[instanceID]
 
-#basically wrap exceptions on instantiation
-Process = _ExceptionTrapper('Process', (Process,), {})
-LiveProcess = _ExceptionTrapper('LiveProcess', (LiveProcess,), {})
-ProcessSnapshot = _ExceptionTrapper('ProcessSnapshot', (ProcessSnapshot,), {})
-RemoteProcess = _ExceptionTrapper('RemoteProcess', (RemoteProcess,), {})
+#basically wrap exceptions on instantiation and cache instances
+Process = _Cache('Process', (Process,), {})
+LiveProcess = _Cache('LiveProcess', (LiveProcess,), {})
+ProcessSnapshot = _Cache('ProcessSnapshot', (ProcessSnapshot,), {})
 #export public attributes, methods, and classes
 __all__ = list(_EXPORTED)

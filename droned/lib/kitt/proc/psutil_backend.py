@@ -15,12 +15,11 @@
 ###############################################################################
 
 #required interfaces that we have to implement
-from kitt.interfaces import IKittProcess, IKittLiveProcess, \
-        IKittProcessSnapshot,IKittProcModule, implements, moduleProvides
+from kitt.interfaces import IKittLiveProcess, IKittProcModule, implements, \
+        moduleProvides
 moduleProvides(IKittProcModule)
 
 import psutil
-import re
 import platform
 import os
 
@@ -51,14 +50,14 @@ __author__ = "Justin Venus <justin.venus@orbitz.com>"
 
 #TODO Exception handling
 
-class Process(object):
+class LiveProcess(object):
     """provide a droned compatible interface by delegating
        the heavy work to ``psutil`` if it is available.
 
        see kitt.interfaces.process.IKittProcess for a
        full api description.
     """
-    implements(IKittProcess)
+    implements(IKittLiveProcess)
     ps = property(lambda s: s._delegate)
     running = property(lambda s: s.isRunning())
     memory = property(lambda s: s.ps.get_memory_info().rss)
@@ -104,12 +103,12 @@ class Process(object):
     def __init__(self, pid):
         if type(pid) != int:
             raise ValueError('Pid must be an integer')
+        self._pid = pid
         self._delegate = psutil.Process(pid)
         #avoid looking these attr's up all of the time. 
         #IO is expensive and the following attr's should be
         #static anyhow.
         self._name = self.ps.name
-        self._pid = self.ps.pid
         self._cmdline = self.ps.cmdline
         self._uid = self.ps.uids.real
         self._gid = self.ps.gids.real
@@ -121,9 +120,12 @@ class Process(object):
 
     def isRunning(self):
         """make sure not only the pid is running but it is the same process 
-           we thought it was.  this is done naively with a simple hash.
+           we thought it was.  this may be done naively with a simple hash.
         """
-        if not self.ps.is_running():
+        if HAS_PROC_DIR: #this is an optimization
+            if not os.path.exists(os.path.join(PROC_DIR,str(self.pid))):
+                return False
+        elif not self.ps.is_running():
             return False
         #make sure this is the same process we thought it was
         return bool(self._make_inode() == self.inode)
@@ -161,20 +163,6 @@ class Process(object):
         except: pass #not sure if it is needed
         return not self.running
 
-    def __str__(self):
-        return '%s(pid=%d)' % (self.__class__.__name__,self.pid)
-    __repr__ = __str__
-
-
-###############################################################################
-# the other classes don't really do anything interesting.
-###############################################################################
-class LiveProcess(Process):
-    implements(IKittLiveProcess)
-    def __init__(self, pid, fast=False):
-        """swallowing unused constructor arg"""
-        Process.__init__(self, pid)
-
     def cpuUsage(self):
         cpu = self.ps.get_cpu_times()
         return {
@@ -182,10 +170,9 @@ class LiveProcess(Process):
             'sys_util' : cpu.system
         }
 
-
-class ProcessSnapshot(Process):
-    implements(IKittProcessSnapshot)
-    def update(self): pass
+    def __str__(self):
+        return '%s(pid=%d)' % (self.__class__.__name__,self.pid)
+    __repr__ = __str__
 
 
 ###############################################################################
@@ -197,36 +184,6 @@ def listProcesses():
         try: return [int(p) for p in os.listdir(PROC_DIR) if p.isdigit()]
         except: pass #rather be slow than blow up
     return psutil.get_pid_list()
-
-def _findProcesses(s):
-    regex = re.compile(s,re.I)
-    #we are using listProcess b/c we may be optimized
-    for pid in listProcesses():
-        try: process = LiveProcess(pid)
-        except: continue #handle unexpected death
-        if _platform == 'Linux':
-            #skip children of the kernel and kthreadd
-            if process.ppid in (0, 2): continue
-        cmd = ' '.join(process.cmdline)
-        if not cmd: continue
-        match = regex.search(cmd)
-        if not match: continue
-        #no point in creating yet another object
-        yield (process, match)
-
-def findProcesses(s):
-    """Finds Process ID by pattern"""
-    try: return dict(_findProcesses)
-    except: return {}
-
-def findThreadIds(s='.*'):
-    """Finds Threads ID by pattern"""
-    tids = set()
-    try:
-        for p,m in _findProcesses(s):
-            tids.update(p.getTasks())
-    except: pass
-    return tids
 
 #TODO
 def cpuStats():
@@ -240,7 +197,7 @@ def isRunning(pid):
     """is a given process id running, returns Boolean"""
     if HAS_PROC_DIR: #yet another optimization
         return os.path.exists(os.path.join(PROC_DIR,str(pid)))
-    try: return Process(int(pid)).running
+    try: return psutil.pid_exists(int(pid))
     except: return False
 
 #no new attributes, methods, or classes to expose

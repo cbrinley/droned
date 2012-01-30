@@ -22,7 +22,7 @@ from twisted.python.failure import Failure
 from droned.errors import DroneCommandFailed
 from droned.logging import err, log
 from droned.entity import Entity
-from kitt.proc import LiveProcess, InvalidProcess, RemoteProcess, NullProcess
+from kitt.proc import LiveProcess, InvalidProcess, RemoteProcess, NullProcess, ProcessSnapshot
 from kitt.decorators import debugCall
 import config
 import time
@@ -616,7 +616,7 @@ class AdaptToProcess(object):
         self.process = NullProcess() #assume the process is dead
         if original.server.hostname == config.HOSTNAME:
             #delay scanning the process, for as long as possible
-            try: self.process = LiveProcess(original.pid, fast=True)
+            try: self.process = ProcessSnapshot(original.pid)
             except InvalidProcess: pass #raise all others
         else:
             self.process = RemoteProcess(ai.pid)

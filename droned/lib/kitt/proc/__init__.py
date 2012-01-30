@@ -95,8 +95,8 @@ from kitt.interfaces import IKittProcModule, IKittProcess, \
 
 #used by the platform loader at the end of this file
 _process_interfaces = {
-    'Process': IKittProcess,
-    'ProcessSnapshot': IKittProcessSnapshot,
+#    'Process': IKittProcess,
+#    'ProcessSnapshot': IKittProcessSnapshot,
     'LiveProcess': IKittLiveProcess,
     'NullProcess': IKittNullProcess,
     'RemoteProcess': IKittRemoteProcess,
@@ -328,16 +328,7 @@ if not _success:
     warnings.warn(e)
 
 
-def process_expiration(func):
-    """this decorator is used to destroy references on the class"""
-    def decorator(self, *args, **kwargs):
-        if not self.isRunning():
-            self.__class__.delete(self)
-        return func(self, *args, **kwargs)
-    return decorator
-
-
-from kitt.decorators import raises
+from kitt.decorators import raises, debugCall
 class _Cache(type):
     """Trap exceptions when instantiating one of the providers. Cache process
        objects to avoid IO impact on some platforms. This also allows us to
@@ -354,6 +345,9 @@ class _Cache(type):
                 del klass._cache[ instanceID ]
                 return
 
+    def exists(klass, pid):
+        return bool(pid in klass._cache)
+
     @raises(InvalidProcess)
     def __call__(klass, *args, **kwargs):
         instanceID = args[0] #must be the pid
@@ -366,27 +360,160 @@ class _Cache(type):
 
     def _builder(klass, *args, **kwargs):
         instanceID = args[0] #must be the pid
-        if instanceID in klass._cache and not \
+        if klass.exists(instanceID) and not \
                 klass._cache[ instanceID ].isRunning():
             #expire on look up if no longer running
             klass.delete(klass._cache[instanceID])
-        elif instanceID not in klass._cache:
+            raise AssertionError('Invalid pid %d' % instanceID)
+        if not klass.exists(instanceID):
             klass._cache[instanceID] = klass.__new__(klass, *args, **kwargs)
-            for name in vars(klass._cache[instanceID]).keys():
-                if name.startswith('_'): continue
-                if name == 'isRunning': continue
-                obj = getattr(klass._cache[instanceID], name)
-                if not hasattr(obj, '__call__'): continue
-                #this runtime decorator will take care of cleanup
-                obj = process_expiration(obj)
-                setattr(klass._cache[instanceID], name, obj)
             klass._cache[instanceID].__init__(*args, **kwargs)
         #key error becomes invalid process
         return klass._cache[instanceID]
 
 #basically wrap exceptions on instantiation and cache instances
-Process = _Cache('Process', (Process,), {})
+#Process = _Cache('Process', (Process,), {})
 LiveProcess = _Cache('LiveProcess', (LiveProcess,), {})
+#ProcessSnapshot = _Cache('ProcessSnapshot', (ProcessSnapshot,), {})
+
+from kitt.decorators import deferredAsThread
+from twisted.internet import defer
+from twisted.python.failure import Failure
+import time
+class ProcessSnapshot(object):
+    """Snapshot of process information"""
+    implements(IKittProcessSnapshot)
+    info = property(lambda s: s._data)
+    pid = property(lambda s: s._pid)
+    inode = property(lambda s: s.info.get('inode', 0))
+    ppid = property(lambda s: s.info.get('ppid', 0))
+    memory = property(lambda s: s.memUsage())
+    fd_count = property(lambda s: len(s.getFD()) or 3)
+    stats = property(lambda s: s.getStats())
+    threads = property(lambda s: s.info.get('threads', 0))
+    exe = property(lambda s: s.info.get('exe', None))
+    environ = property(lambda s: s.getEnv())
+    cmdline = property(lambda s: s.info.get('cmdline', []))
+    running = property(lambda s: s.isRunning())
+    uid = property(lambda s: s.info.get('uid', 0))
+    gid = property(lambda s: s.info.get('gid', 0))
+
+    def __init__(self, pid):
+        self.deferred = defer.succeed(None)
+        self._lastupdate = 0
+        self._pid = pid
+        self._data = {}
+        try:
+            LiveProcess(pid) #warm the cache
+            from twisted.internet import reactor
+            reactor.callLater(1.0, self.update)
+        except InvalidProcess:
+            self.__class__.delete(self)
+
+    def isRunning(self):
+        try: return LiveProcess(self.pid).running
+        except: #destroy stats on death
+            self.__class__.delete(self)
+            self._data = {}
+            return False
+
+    @defer.deferredGenerator
+    def update(self):
+        result = {}
+        try:
+            if not self.deferred.called:
+                wfd = defer.waitForDeferred(self.deferred)
+                yield wfd
+                result = wfd.getResult()
+            elif (time.time() - self._lastupdate) < 10:
+                result = self._data #throttle scans
+            else:
+                self._lastupdate = time.time()
+                self.deferred = self._get_updates()
+                wfd = defer.waitForDeferred(self.deferred)
+                yield wfd
+                self._data.update(wfd.getResult())
+                result = self._data
+        except:
+            self.__class__.delete(self)
+            self._data = {} #destroy stats on death
+            result = Failure()
+        yield result
+
+    def getTasks(self):
+        return self.info.get('getTasks', set())
+
+    def getStats(self):
+        return self.info.get('getStats', {})
+
+    def getFD(self):
+        return self.info.get('getFD', {})
+
+    def getEnv(self):
+        return self.info.get('getEnv', {})
+
+    def memUsage(self):
+        return self.info.get('memUsage', 0)
+
+    def cpuUsage(self):
+        return self.info.get('cpuUsage', {'user_util': 0.0, 'sys_util': 0.0})
+
+    @deferredAsThread
+    def _get_updates(self):
+        """lots of io in here on most platforms"""
+        #each look will keep the process honest
+        return {
+            'getTasks': LiveProcess(self.pid).getTasks(),
+            'getStats': LiveProcess(self.pid).getStats(),
+            'memUsage': LiveProcess(self.pid).memUsage(),
+            'cpuUsage': LiveProcess(self.pid).cpuUsage(),
+            'getFD': LiveProcess(self.pid).getFD(),
+            'getEnv': LiveProcess(self.pid).getEnv(),
+            'ppid': LiveProcess(self.pid).ppid,
+            'cmdline': LiveProcess(self.pid).cmdline,
+            'exe': LiveProcess(self.pid).exe,
+            'uid': LiveProcess(self.pid).uid,
+            'gid': LiveProcess(self.pid).gid,
+            'inode': LiveProcess(self.pid).inode,
+            'threads': LiveProcess(self.pid).threads
+        }
+
+    def __str__(self):
+        return '%s(pid=%d)' % (self.__class__.__name__,self.pid)
+    __repr__ = __str__
 ProcessSnapshot = _Cache('ProcessSnapshot', (ProcessSnapshot,), {})
+
+
+import re
+def _findProcesses(s):
+    regex = re.compile(s,re.I)
+    #we are using listProcess b/c we may be optimized
+    for pid in listProcesses():
+        try: process = LiveProcess(pid, fast=True)
+        except: continue #handle unexpected death
+        if platform.system() == 'Linux':
+            #skip children of the kernel and kthreadd
+            if process.ppid in (0, 2): continue
+        cmd = ' '.join(process.cmdline)
+        if not cmd: continue
+        match = regex.search(cmd)
+        if not match: continue
+        #no point in creating yet another object
+        yield (process, match)
+
+def findProcesses(s):
+    """Finds Process ID by pattern"""
+    return dict(_findProcesses(s))
+
+def findThreadIds(s='.*'):
+    """Finds Threads ID by pattern"""
+    tids = set()
+    try:
+        for p,m in _findProcesses(s):
+            tids.update(p.getTasks())
+    except: pass
+    return tids
+
+
 #export public attributes, methods, and classes
 __all__ = list(_EXPORTED)

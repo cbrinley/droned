@@ -405,8 +405,8 @@ class ProcessSnapshot(object):
         self._data = {}
         try:
             LiveProcess(pid) #warm the cache
-            from twisted.internet import reactor
-            reactor.callLater(1.0, self.update)
+            d = self.update() #get status and handle failures
+            d.addErrback(lambda x: self.__class__.delete(self))
         except InvalidProcess:
             self.__class__.delete(self)
 

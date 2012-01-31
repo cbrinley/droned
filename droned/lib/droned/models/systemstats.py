@@ -75,8 +75,8 @@ from droned.models.graphite import IDataPoint,DataPoint,TimeSeriesData
 
 #kitt based imports
 from kitt.decorators import raises
-from kitt.util import ClassLoader
-from kitt.numeric.vectors import SimpleVectorTransformLoader, VectorTransform 
+from kitt.util import ClassLoader, dictwrapper
+from kitt.numeric.vectors import SimpleVectorTransformLoader, VectorTransform
 
 try:
     import psutil
@@ -685,7 +685,7 @@ class DiskStat(StatBlock):
             dp = DataPoint(value=pobj.write_time,meta_data=meta)
             save(dp)
         self.partition_map("disk.time.write", _run)
-        
+       
         
 class CpuStat(StatBlock):
     TYPE = "cpu"
@@ -702,9 +702,12 @@ class CpuStat(StatBlock):
         if per_cpu_test in affirm: 
             self.PER_CPU = True
             self.cpu_percent = psutil.cpu_percent(interval=1,percpu=True)
+            self.reference_time_stats = psutil.cpu_times(percpu=True)
         else:
             self.PER_CPU = False
             self.cpu_percent = psutil.cpu_percent(interval=1)
+            self.reference_time_stats = psutil.cpu_times()
+        self.CUMULATIVE_TIMES = str(block.get('USE_CUMULATIVE_TIMES',0)) in affirm
         self.cpu_percent_task = task.LoopingCall(self.collect_cpu_percent)
         self.cpu_percent_task.start(1,False)
         self.PROVIDED_METRICS.update({
@@ -717,6 +720,56 @@ class CpuStat(StatBlock):
             "time.softirq": self.time_softirq})
         self.PROTOCOLS += [CpuStatMetaData()]
         self.remove_invalid_request_metrics()
+        
+    def get_differences(self,percpu=False):
+        '''this function returns an object the "feels" like
+           psutil.cpu_times() object. the key difference being that 
+           this newly returned object is just the deltas since last time
+           this function was called if USE_CUMULATIVE_TIMES is false
+           if its true just return cpu_times un-altered.
+        '''
+        if percpu and self.CUMULATIVE_TIMES: return self._gctd1()
+        if percpu and not self.CUMULATIVE_TIMES: return self._gctd2()
+        if not percpu and self.CUMULATIVE_TIMES: return self._gctd3()
+        if not percpu and not self.CUMULATIVE_TIMES: return self._gctd4()
+            
+    
+    def _gctd1(self):
+        '''shorthand for get_cpu_time_difference1
+           where 1 is percpu and with cumulative stats
+        '''
+        return psutil.cpu_times(percpu=True)
+    
+    def _gctd2(self):
+        '''shorthand for get_cpu_time_difference2
+           where 2 is percpu and not with cumulative stats
+        '''
+        new_times = psutil.cpu_times(percpu=True)
+        out_times = []
+        for n,r in zip(new_times,self.reference_time_stats):
+            out = dictwrapper()
+            out.user = n.user - r.user
+            out.nice = n.nice - r.nice
+            out.system = n.system - r.system
+            out.idle = n.idle - r.idle
+            out.iowait = n.iowait - r.iowait
+            out.irq = n.irq - r.irq
+            out.softirq = n.softirq - r.softirq
+            out_times.append(out)
+        self.reference_time_stats = new_times
+        return out_times
+                
+    
+    def _gctd3(self):
+        '''shorthand for get_cpu_time_difference3
+           where 3 is not percpu and with cumulative stats
+        '''
+    
+    def _gctd4(self):
+        '''shorthand for get_cpu_time_difference4
+           where 4 is not percpu and without cumulative stats
+        '''
+        
     
     def collect_cpu_percent(self):
         per_check = bool(self.PER_CPU or self.CPUS)

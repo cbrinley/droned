@@ -174,7 +174,11 @@ TYPE: cpu
   * CPUS: optional. a list of cpu's to collect stats for. this will be of the form [0,2,7,...] where these number represent which
 	  CPU you are collecting stats for. <cpu> variable will evaluate to "all" if not used and PER_CPU not True.
   * PER_CPU: optional. bool. if true list stats per cpu even if CPUSis not specified. Default False
-  * METRICS: see disk
+  * USE_CUMULATIVE_TIMES: optional. boo. if set time metrics are reported as a running total of time spent in that mode
+                          example time.iowait. the total time spent in iowait since system boot.
+                          if this option is fale (default) time metrics will be reported as the amount of time
+                          spent in a given mode since last interval.
+    * METRICS: see disk
     * usage.percent: same as disk but for CPU
     * time.user: represents time in user mode.
     * time.system: time in kernel/system

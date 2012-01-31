@@ -422,7 +422,9 @@ class AppInstance(Entity):
         """
         if not hasattr(self, '_process'):
             #try to grab a live process, on exception grab a NullProcess
-            try: self._process = IDroneModelAppProcess(self)
+            try: 
+                 assert self.pid #save the scan attempt
+                 self._process = IDroneModelAppProcess(self)
             except: self._process = IKittNullProcess(self) #should be a NullProcess
         elif IDroneModelAppProcess.providedBy(self._process) and not \
                 AppProcess.isValid(self._process):
@@ -544,9 +546,15 @@ class AppInstance(Entity):
             delattr(self, '_process') #force rescan for process
         return inode
     def _setpid(self, pid):
-        self.info['pid'] = int(pid)
+        pid = int(pid)
+        if hasattr(self, '_process'):
+            delattr(self, '_process') #force update on change
+        self.info['pid'] = pid
     def _setinode(self, inode):
-        self.info['inode'] = int(inode)
+        inode = int(inode)
+        if hasattr(self, '_process'):
+            delattr(self, '_process') #force update on change
+        self.info['inode'] = inode
     def _getversion(self):
         if not hasattr(self, '_version'):
             self._version = AppVersion.makeAppVersion(self.app.name,None)
@@ -555,7 +563,6 @@ class AppInstance(Entity):
         if not hasattr(self, '_version'):
             self._version = AppVersion.makeAppVersion(self.app.name,None)
         return IDroneModelAppVersion(self._version)
-#FIXME should fire Event on Version change
     def _setversion(self, version):
         """sets the self.appversion and self.version"""
         checkVersion = hasattr(self, '_version') #could be reconstructing

@@ -207,6 +207,7 @@ class Daemon(Options):
 
         if os.getuid() != 0:
             # We're not root so, like, whatever dude
+            self.reactor.fireSystemEvent('priviledges')
             return
 
         import config

@@ -96,7 +96,7 @@ class ApplicationLoader(Service):
        reactor.callLater(SERVICECONFIG.initial_delay, self._start_all_tasks)
 
    def _start_all_tasks(self):
-       self.assimilate_app_instances() #make sure this runs first
+#seems destructive       self.assimilate_app_instances() #make sure this runs first
        self._task.start(SERVICECONFIG.recover_interval)
        self._task2.start(SERVICECONFIG.assimilate_interval)
 
